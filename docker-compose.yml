@@ -1,0 +1,177 @@
+version: "3.8"
+
+services:
+########################
+# Let's Encrypt Server #
+########################
+  letsencrypt:
+    container_name: nginx
+    image: linuxserver/swag:arm64v8-latest
+    restart: unless-stopped
+    environment:
+      - PUID=${SSL_PUID}
+      - PGID=${SSL_PGID}
+      - TZ=${TZ}
+      - URL=${SSL_URL}
+      - SUBDOMAINS=${SSL_SUBDOMAINS}
+      - VALIDATION=${SSL_VALIDATION}
+      - DUCKDNSTOKEN=${SSL_DUCKDNSTOKEN}
+      - EMAIL=${SSL_EMAIL}
+      - ONLY_SUBDOMAINS=${SSL_ONLY_SUBDOMAINS}
+    ports:
+      - ${SSL_PORT_80}:80
+      - ${SSL_PORT_443}:443
+    volumes:
+      - ${SSL_CONFIG}:/config
+      - ${SSL_RESOLV}:/etc/resolv.conf
+      - ${SSL_APP}:/app
+    cap_add:
+      - NET_ADMIN
+    networks:
+      - raspberry_pi
+
+#########################
+#  Samba Client Server  #
+#########################
+  samba:
+    image: dperson/samba:latest
+    container_name: samba
+    environment:
+     - TZ=${TZ}
+     - USER=${SMB_USERS}
+    ports:
+      - ${SMB_PORT_137}:137/udp
+      - ${SMB_PORT_138}:138/udp
+      - ${SMB_PORT_139}:139/tcp
+      - ${SMB_PORT_445}:445/tcp
+    tmpfs:
+      - /tmp
+    restart: unless-stopped
+    stdin_open: ${SMB_STDIN}
+    tty: ${SMB_TTY}
+    volumes:
+      - ${SMB_CONFIG}:/etc/samba/smb.conf
+      - ${SMB_DATA}:/mnt/data
+    networks:
+      - raspberry_pi
+
+######################
+#   Jellyfin Server  #
+######################
+  jellyfin:
+    container_name: jellyfin
+    image: jellyfin/jellyfin:latest
+    restart: unless-stopped
+    ports:
+      - ${JELLYFIN_PORT_8096}:8096/tcp
+      - ${JELLYFIN_PORT_8920}:8920/tcp
+      - ${JELLYFIN_PORT_1900}:1900/udp
+      - ${JELLYFIN_PORT_7359}:7359/udp
+    volumes:
+      - ${JELLYFIN_CONFIG}:/config
+      - ${JELLYFIN_CACHE}:/cache
+      - ${JELLYFIN_MEDIA}:/media
+    networks:
+      - raspberry_pi
+
+######################
+#  BitWarden Server  #
+######################
+  bitwarden:
+    container_name: bitwarden
+    image: bitwardenrs/server:latest
+    restart: unless-stopped
+    environment: 
+      - WEBSOCKET_ENABLED=${BITWARDEN_WEBSOCKET_ENABLED}
+    ports:
+      - ${BITWARDEN_PORT_80}:80
+      - ${BITWARDEN_PORT_3012}:3012
+    volumes:
+      - ${BITWARDEN_PATH}:/etc/bitwarden
+      - bitwarden:/data
+    networks:
+      - raspberry_pi
+
+######################
+#  BitWarden Backup  #
+######################
+  bw_backup:
+    image: bruceforce/bw_backup:latest
+    container_name: bitwarden_backup
+    restart: unless-stopped
+    init: true
+    depends_on:
+      - bitwarden
+    volumes:
+      - bitwarden:/data/
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+      - ${BITWARDEN_BACKUP_PATH}:/backup_folder/
+    environment:
+      - DB_FILE=/data/db.sqlite3
+      - BACKUP_FILE=/backup_folder/db_backup/backup.sqlite3
+      - BACKUP_FILE=/data/db_backup/backup.sqlite3
+      - CRON_TIME=0 5 * * *
+      - TIMESTAMP=false
+      - UID=0
+      - GID=0
+      - BACKUP_FILE_PERMISSIONS=700
+
+
+######################
+#   Pihole Server    #
+######################
+  pihole:
+    container_name: pihole
+    image: pihole/pihole:latest
+    restart: unless-stopped
+    ports:
+      - ${PIHOLE_PORT_53}:53/tcp
+      - ${PIHOLE_PORT_53}:53/udp
+      - ${PIHOLE_PORT_80}:80/tcp
+    environment:
+      - ServerIP=${PIHOLE_IP}
+      - IPv6=${PIHOLE_IPV6}
+      - TZ=${TZ}
+      - DNSMASQ_LISTENING=${PIHOLE_DNSMASQ}
+      - WEBPASSWORD=${PIHOLE_PASSWORD}
+    dns:
+      - ${PIHOLE_DNS1}
+      - ${PIHOLE_DNS2}
+    volumes:
+      - ${PIHOLE_PATH}:/etc/pihole
+      - ${PIHOLE_DNSMASQ_D}:/etc/dnsmasq.d
+      - ${PIHOLE_RESOLV}:/etc/resolv.conf
+    cap_add:
+      - NET_ADMIN
+    networks:
+      - raspberry_pi
+
+######################
+#  Portainer Server  #
+######################
+  portainer:
+    container_name: portainer
+    image: portainer/portainer:latest
+    restart: always
+    volumes:
+      - ${PORTAINER_DOCKER_PATH}:/var/run/docker.sock
+      - ${PORTAINER_PATH}:/data
+    ports:
+      - ${PORTAINER_PORT}:9000
+    networks:
+      - raspberry_pi
+
+     
+######################
+#   Docker Network   #
+######################
+networks:
+  raspberry_pi:
+    driver: bridge
+
+######################
+#   Docker Volume    #
+######################
+volumes:
+  bitwarden:
